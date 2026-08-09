@@ -15,3 +15,4 @@ class AgentState(TypedDict):
     trace_steps: list              # list[TraceStep]（dict 形式，便于序列化）
     agent_config: dict             # 原始 AgentConfig（供节点读取）
     datasources: dict              # 数据源配置 {数据源名: {base_url, method, headers}}（http 节点用）
+    knowledges: dict               # 知识内容 {知识名: content}（运行时注入，实时引用）

@@ -23,15 +23,22 @@ class WorkflowIssue(BaseModel):
 def validate_workflow(
     config: AgentConfig,
     existing_datasources: set[str] | None = None,
+    existing_knowledge: set[str] | None = None,
 ) -> list[WorkflowIssue]:
     """校验整个 AgentConfig（含 workflow + 模型设置），返回全部问题。
 
-    existing_datasources：已有数据源名集合；为 None 时跳过 DATASOURCE_MISSING
-    （数据源表在 Layer 6 引入，届时由服务层从 DB 传入）。
+    existing_datasources / existing_knowledge：已有资源名集合；为 None 时跳过对应检查
+    （由服务层从 DB 传入）。
     """
     issues: list[WorkflowIssue] = []
     workflow: WorkflowConfig = config.workflow
     steps = workflow.steps
+
+    # ---------------- Layer 3A · 知识绑定 ----------------
+    if existing_knowledge is not None:
+        for name in config.knowledge_bindings:
+            if name not in existing_knowledge:
+                issues.append(_issue(None, "KNOWLEDGE_BINDING_MISSING", "error", f"绑定的知识 {name} 不存在"))
 
     # ---------------- Layer 2 · Topology ----------------
     if workflow.start not in steps:

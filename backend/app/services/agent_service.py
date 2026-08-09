@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from app.core.contracts import AgentConfig, ModelSettings
 from app.core.workflow_validation import validate_workflow
 from app.models.agent import Agent, AgentVersion
+from app.services.resources import resource_sets
 
 VERSION_STATUS_DRAFT = "draft"
 VERSION_STATUS_PUBLISHED = "published"
@@ -133,14 +134,19 @@ def update_draft(
                 "prompt": version.prompt,
                 "workflow": version.workflow_config,
                 "capability_bindings": version.capability_bindings,
+                "knowledge_bindings": version.knowledge_bindings,
                 "model_settings": version.model_settings,
             }
         )
     except Exception as e:
         raise ValueError(f"版本配置校验失败：{e}") from e
 
-    # 拓扑 + 语义校验：error 拒绝保存（warning 放行，编辑中可暂存）
-    errors = [i for i in validate_workflow(config) if i.severity == "error"]
+    # 拓扑 + 语义校验（含资源存在性）：error 拒绝保存（warning 放行，编辑中可暂存）
+    ds, kn = resource_sets(db)
+    errors = [
+        i for i in validate_workflow(config, existing_datasources=ds, existing_knowledge=kn)
+        if i.severity == "error"
+    ]
     if errors:
         raise ValueError(f"Workflow 校验未通过：{errors[0].message}")
 

@@ -24,12 +24,14 @@ async def run_agent(
     version_id: str = "",
     image_url: str | None = None,
     datasources: dict | None = None,
+    knowledges: dict | None = None,
     max_steps: int = 100,
 ) -> TraceRecord:
     """运行一个 Agent 版本，返回结构化运行记录。
 
     agent_id / version_id 由上层服务回填；datasources 为 http 节点的数据源配置
-    {数据源名: {base_url, method, headers}}（由服务层从 DB 解析后传入）。
+    {数据源名: {base_url, method, headers}}；knowledges 为 {知识名: content}（知识注入）。
+    二者均由服务层从 DB 解析后传入。
     """
     # 运行前校验：error 级问题拒绝运行（清晰中文报错而非 LangGraph 裸异常，§9.4）
     errors = [
@@ -37,6 +39,7 @@ async def run_agent(
         for i in validate_workflow(
             agent_config,
             existing_datasources=set((datasources or {}).keys()),
+            existing_knowledge=set((knowledges or {}).keys()),
         )
         if i.severity == "error"
     ]
@@ -53,6 +56,7 @@ async def run_agent(
         "trace_steps": [],
         "agent_config": agent_config.model_dump(),
         "datasources": datasources or {},
+        "knowledges": knowledges or {},
     }
     try:
         final = await graph.ainvoke(initial, config={"recursion_limit": max_steps})

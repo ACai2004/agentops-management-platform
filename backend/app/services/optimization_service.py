@@ -12,6 +12,7 @@ from app.models.feedback import Feedback
 from app.models.plan import ModificationPlan as PlanModel
 from app.models.trace import Trace
 from app.services.agent_service import VERSION_STATUS_DRAFT
+from app.services.resources import resource_sets
 
 
 class OptimizationError(Exception):
@@ -77,6 +78,7 @@ async def generate_plan(db: Session, feedback_id) -> PlanModel:
             "prompt": version.prompt,
             "workflow": version.workflow_config,
             "capability_bindings": version.capability_bindings,
+            "knowledge_bindings": version.knowledge_bindings,
             "model_settings": version.model_settings,
         }
     )
@@ -168,13 +170,15 @@ def apply_plan(db: Session, plan_id, *, approved_by: str = "admin") -> AgentVers
             "prompt": draft.prompt,
             "workflow": draft.workflow_config,
             "capability_bindings": draft.capability_bindings,
+            "knowledge_bindings": draft.knowledge_bindings,
             "model_settings": draft.model_settings,
         }
     )
     new_config = apply_changes(config, [Change.model_validate(c) for c in plan.changes])
 
-    # 校验：error + warning 都拒绝（AI 生成候选按发布标准，失败回滚不产生版本）
-    issues = validate_workflow(new_config)
+    # 校验（含资源存在性）：error + warning 都拒绝（AI 生成候选按发布标准，失败回滚不产生版本）
+    ds, kn = resource_sets(db)
+    issues = validate_workflow(new_config, existing_datasources=ds, existing_knowledge=kn)
     if issues:
         db.rollback()
         raise OptimizationError(f"应用后校验未通过：{issues[0].message}（{issues[0].code}）")

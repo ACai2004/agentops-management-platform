@@ -44,6 +44,7 @@ class AgentConfig(BaseModel):
     prompt: str                          # Agent 系统提示词
     workflow: WorkflowConfig
     capability_bindings: dict[str, Any] = Field(default_factory=dict)  # {能力名: 绑定参数}
+    knowledge_bindings: list[str] = Field(default_factory=list)  # 绑定的知识名，运行时注入上下文（实时引用）
     model_settings: ModelSettings = Field(default_factory=ModelSettings)
 
 

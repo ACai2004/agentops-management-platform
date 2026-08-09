@@ -39,14 +39,24 @@ def _interpolate(template: str, state: AgentState) -> str:
     return result
 
 
+def _system_context(state: AgentState, node_prompt: str | None = None) -> str:
+    """系统消息 = Agent 提示词 + 绑定的知识内容 + 节点 prompt（§6 知识注入，实时引用）。"""
+    agent_prompt = state["agent_config"].get("prompt", "")
+    knowledge_parts = []
+    for name in state["agent_config"].get("knowledge_bindings") or []:
+        content = (state.get("knowledges") or {}).get(name)
+        if content:
+            knowledge_parts.append(f"【知识库「{name}」】\n{content}")
+    parts = [p for p in (agent_prompt, *knowledge_parts, node_prompt) if p]
+    return "\n\n".join(parts)
+
+
 def _build_messages(node: WorkflowNode, state: AgentState) -> list[dict]:
-    """llm 节点：系统消息 = Agent 提示词 + 节点 prompt（+ 绑定知识由调用方预拼）；用户消息 = 上下文 + 前序产物。
+    """llm 节点：系统消息 = 提示词 + 知识 + 节点 prompt；用户消息 = 上下文 + 前序产物。
 
     `image_input=true` 时用户消息含图片 content part（OpenAI 兼容 content 数组）。
     """
-    agent_prompt = state["agent_config"].get("prompt", "")
-    system_parts = [p for p in (agent_prompt, node.prompt) if p]
-    system = "\n\n".join(system_parts)
+    system = _system_context(state, node.prompt)
 
     user_parts = []
     if state.get("input"):
@@ -119,7 +129,7 @@ def make_llm_node(node_id: str, node: WorkflowNode) -> Callable:
 def make_decision_node(node_id: str, node: WorkflowNode) -> Callable:
     async def _node(state: AgentState) -> AgentState:
         started = time.perf_counter()
-        system = state["agent_config"].get("prompt", "")
+        system = _system_context(state)
         user = _build_decision_prompt(node, state)
         result = await call_structured(
             DecisionOutput,

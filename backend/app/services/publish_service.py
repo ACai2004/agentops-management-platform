@@ -14,6 +14,7 @@ from app.services.agent_service import (
     VERSION_STATUS_PUBLISHED,
     VERSION_STATUS_ROLLED_BACK,
 )
+from app.services.resources import resource_sets
 
 
 class PublishError(Exception):
@@ -57,10 +58,12 @@ def publish(db: Session, version_id, *, approved_by: str = "admin") -> AgentVers
             "prompt": version.prompt,
             "workflow": version.workflow_config,
             "capability_bindings": version.capability_bindings,
+            "knowledge_bindings": version.knowledge_bindings,
             "model_settings": version.model_settings,
         }
     )
-    issues = validate_workflow(config)
+    ds, kn = resource_sets(db)
+    issues = validate_workflow(config, existing_datasources=ds, existing_knowledge=kn)
     if issues:
         raise PublishError(f"发布前校验未通过：{issues[0].message}（{issues[0].code}）")
 

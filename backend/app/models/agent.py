@@ -36,6 +36,7 @@ class AgentVersion(Base):
     prompt: Mapped[str] = mapped_column(Text, nullable=False)
     workflow_config: Mapped[dict] = mapped_column(JSONB, nullable=False)  # 符合 WorkflowConfig schema
     capability_bindings: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    knowledge_bindings: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)  # 绑定的知识名（实时引用）
     model_settings: Mapped[dict] = mapped_column(JSONB, nullable=False)  # 符合 ModelSettings
     status: Mapped[str] = mapped_column(String, nullable=False)  # "draft" | "published" | "rolled_back"
     created_by: Mapped[str] = mapped_column(String, nullable=False)

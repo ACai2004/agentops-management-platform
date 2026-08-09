@@ -1,0 +1,46 @@
+{
+"userId":"10001",
+
+"basicInfo":{
+    "gender":"female",
+    "ageRange":"25",
+    "city":"北京"
+},
+
+
+"tastePreference":"用户偏好口味较丰富的菜品，喜欢酸辣和具有特色风味的食物，非常喜欢吃爆辣的东西。",
+
+
+"diningBehavior":{
+
+"favoriteCuisine":[
+"泰餐",
+"川菜",
+"日料",
+"火锅",
+"烧烤"
+],
+
+"averageBudget":"80"
+
+},
+
+
+"scenePreference":{
+
+"occasion":[
+"朋友聚餐",
+"周末休闲",
+"拍照打卡"
+],
+
+"environmentPreference":[
+"喜欢拍照",
+"喜欢安静的环境",
+"喜欢有特色的装修风格"
+]
+
+}
+
+
+}
