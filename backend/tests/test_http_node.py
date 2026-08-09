@@ -98,7 +98,7 @@ async def test_http_node_interpolation_and_success(monkeypatch):
     assert client.calls, "http 节点应发起请求"
     call = client.calls[0]
     assert call["method"] == "GET"
-    assert call["params"]["city"] == "北京"  # {{city}} 插值成功
+    assert "city=%E5%8C%97%E4%BA%AC" in call["url"]  # {{city}} 插值进 URL（urlencoded 北京）
     assert call["headers"] == {"key": "secret"}
     # 响应已存进 vars，end 节点把它作为输出
     assert "北京" in trace.output or "temp" in str(trace.output) or trace.steps
@@ -167,3 +167,46 @@ async def test_llm_vision_image_input(monkeypatch):
     assert isinstance(user, list), "带图节点应使用 content 数组"
     assert any(part.get("type") == "image_url" for part in user)
     assert captured["model"] == "vision"  # 路由到视觉模型
+
+
+@pytest.mark.asyncio
+async def test_http_node_merges_base_url_query_with_params(monkeypatch):
+    """回归：base_url 自带 query（如数据源 key=?key=...）必须与节点 params 合并，不能丢失。
+
+    曾真实出现：httpx 传 params 会丢弃 url 自带 query，导致高德天气报 INVALID_USER_KEY。
+    """
+    client = _CapturingClient(_FakeResponse(json_data={"status": 1}))
+
+    async def fake_call(messages, model="primary", temperature=0.7, max_tokens=1024, json_mode=False):
+        return "北京"
+
+    monkeypatch.setattr(nodes, "call", fake_call)
+    monkeypatch.setattr(nodes.httpx, "AsyncClient", lambda timeout=None: client)
+
+    cfg = AgentConfig(
+        prompt="p",
+        workflow=WorkflowConfig.model_validate(
+            {
+                "start": "extract",
+                "steps": {
+                    "extract": {"type": "llm", "prompt": "提取城市", "save_as": "city", "next": "fetch"},
+                    "fetch": {
+                        "type": "http",
+                        "datasource": "weather",
+                        "params": {"city": "{{city}}"},
+                        "save_as": "w",
+                        "next": "end",
+                    },
+                    "end": {"type": "end"},
+                },
+            }
+        ),
+    )
+    datasources = {
+        "weather": {"base_url": "https://api.example.com/weather?key=secret", "method": "GET"}
+    }
+    await run_agent(cfg, "我在北京", env="test", datasources=datasources)
+
+    url = client.calls[0]["url"]
+    assert "key=secret" in url  # base_url 的 query 参数保留
+    assert "city=%E5%8C%97%E4%BA%AC" in url  # 节点 params（插值后北京）合并进来（urlencoded）

@@ -5,6 +5,7 @@
 
 import time
 from collections.abc import Callable
+from urllib.parse import parse_qsl, urlencode, urlparse
 
 import httpx
 
@@ -37,6 +38,20 @@ def _interpolate(template: str, state: AgentState) -> str:
     for key, value in state["vars"].items():
         result = result.replace("{{" + str(key) + "}}", str(value))
     return result
+
+
+def _build_url(base_url: str, params: dict | None, state: AgentState) -> str:
+    """把 base_url 自带的 query 参数与节点 params（支持 {{var}} 插值）合并进 URL。
+
+    注意：httpx 传 params 会丢弃 url 自带的 query（如 base_url 里的 ?key=...），
+    所以这里手动解析并合并，避免数据源 key 丢失。
+    """
+    url = _interpolate(base_url, state)
+    parsed = urlparse(url)
+    merged = dict(parse_qsl(parsed.query))
+    for k, v in (params or {}).items():
+        merged[k] = _interpolate(str(v), state)
+    return parsed._replace(query=urlencode(merged)).geturl()
 
 
 def _system_context(state: AgentState, node_prompt: str | None = None) -> str:
@@ -168,14 +183,12 @@ def make_http_node(node_id: str, node: WorkflowNode) -> Callable:
         if not ds:
             result = {"error": f"数据源 {node.datasource} 未配置"}
         else:
-            url = _interpolate(ds.get("base_url", ""), state)
-            params = {k: _interpolate(str(v), state) for k, v in (node.params or {}).items()}
+            url = _build_url(ds.get("base_url", ""), node.params, state)
             try:
                 async with httpx.AsyncClient(timeout=10.0) as client:
                     resp = await client.request(
                         ds.get("method", "GET"),
                         url,
-                        params=params or None,
                         headers=ds.get("headers"),
                     )
                     resp.raise_for_status()
