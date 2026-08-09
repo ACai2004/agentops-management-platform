@@ -20,8 +20,10 @@ class Settings(BaseSettings):
     # LLM 网关（Layer 2 起使用）
     deepseek_api_key: str = ""
     backup_model_key: str = ""
+    openrouter_key: str = ""            # 视觉模型 key（OpenRouter）
     # LLM 模型（LiteLLM 格式：provider/model）
     llm_model: str = "deepseek/deepseek-v4-flash"
+    vision_model: str = "openrouter/qwen/qwen-3.6-plus"  # 视觉模型（用户已验证；确切 id 以 .env 为准）
     # 前端地址（CORS，Layer 8 起使用）
     frontend_url: str = "http://localhost:5173"
 

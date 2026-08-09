@@ -22,12 +22,17 @@ class ModelSettings(BaseModel):
 
 
 class WorkflowNode(BaseModel):
-    type: Literal["llm", "decision", "end"]
+    type: Literal["llm", "decision", "end", "http"]
     prompt: str | None = None            # llm/decision 必填
-    save_as: str | None = None           # llm/decision 必填（写入 AgentState.vars 的 key）
-    next: str | None = None              # llm 节点：下一节点 id
+    save_as: str | None = None           # llm/decision/http 必填（写入 AgentState.vars 的 key）
+    next: str | None = None              # llm/http 节点：下一节点 id
     branches: dict[str, str] | None = None  # decision 节点：{分支值: 下一节点 id}
-    model_settings: ModelSettings | None = None  # 节点级覆盖（可选）
+    model_settings: ModelSettings | None = None  # 节点级覆盖（可选；视觉节点用它绑定视觉模型）
+    # http 节点字段
+    datasource: str | None = None        # http：引用的数据源名（见 §7 Datasource）
+    params: dict[str, str] | None = None # http：请求参数，值支持 {{var}} 插值自 state.vars
+    # llm 视觉字段
+    image_input: bool = False            # llm：是否把运行输入携带的图片作为输入（模型必须支持视觉）
 
 
 class WorkflowConfig(BaseModel):
@@ -49,7 +54,7 @@ class AgentConfig(BaseModel):
 
 class TraceStep(BaseModel):
     node_id: str
-    node_type: Literal["llm", "decision", "end"]
+    node_type: Literal["llm", "decision", "end", "http"]
     input: str | None = None             # 本节点的输入（透传相关上下文）
     output: str | dict | None = None     # LLM 返回 / decision 判断
     branch: str | None = None            # decision 选中的分支
@@ -65,6 +70,7 @@ class TraceRecord(BaseModel):
     version_id: str
     env: Literal["test", "live"]
     input: str
+    image_url: str | None = None         # 可选：本次运行的输入图片（视觉节点用）
     steps: list[TraceStep]
     output: str
     model: str

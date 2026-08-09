@@ -5,6 +5,8 @@
 
 from sqlalchemy.orm import Session
 
+from app.core.contracts import AgentConfig
+from app.core.workflow_validation import validate_workflow
 from app.models.agent import Agent, AgentVersion
 from app.models.publish import PublishRecord
 from app.services.agent_service import (
@@ -48,6 +50,20 @@ def publish(db: Session, version_id, *, approved_by: str = "admin") -> AgentVers
     agent = db.get(Agent, version.agent_id)
     if not agent:
         raise PublishError("所属 Agent 不存在")
+
+    # 发布前校验：error + warning 都拒绝（要上线的图必须干净，§10.2）
+    config = AgentConfig.model_validate(
+        {
+            "prompt": version.prompt,
+            "workflow": version.workflow_config,
+            "capability_bindings": version.capability_bindings,
+            "model_settings": version.model_settings,
+        }
+    )
+    issues = validate_workflow(config)
+    if issues:
+        raise PublishError(f"发布前校验未通过：{issues[0].message}（{issues[0].code}）")
+
     _set_current(db, agent, version, "publish", approved_by)
     db.refresh(version)
     return version

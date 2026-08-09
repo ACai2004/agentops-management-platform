@@ -7,6 +7,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.contracts import AgentConfig, ModelSettings
+from app.core.workflow_validation import validate_workflow
 from app.models.agent import Agent, AgentVersion
 
 VERSION_STATUS_DRAFT = "draft"
@@ -127,7 +128,7 @@ def update_draft(
 
     # 整体校验为合法 AgentConfig，非法则抛错、不落库
     try:
-        AgentConfig.model_validate(
+        config = AgentConfig.model_validate(
             {
                 "prompt": version.prompt,
                 "workflow": version.workflow_config,
@@ -137,6 +138,11 @@ def update_draft(
         )
     except Exception as e:
         raise ValueError(f"版本配置校验失败：{e}") from e
+
+    # 拓扑 + 语义校验：error 拒绝保存（warning 放行，编辑中可暂存）
+    errors = [i for i in validate_workflow(config) if i.severity == "error"]
+    if errors:
+        raise ValueError(f"Workflow 校验未通过：{errors[0].message}")
 
     db.commit()
     db.refresh(version)

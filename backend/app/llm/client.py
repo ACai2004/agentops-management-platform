@@ -25,6 +25,13 @@ router = Router(
                 "api_key": settings.backup_model_key or settings.deepseek_api_key,
             },
         },
+        {
+            "model_name": "vision",
+            "litellm_params": {
+                "model": settings.vision_model,
+                "api_key": settings.openrouter_key,
+            },
+        },
     ],
     fallbacks=[{"primary": ["fallback"]}],   # 主模型失败/限流时切备用
     num_retries=2,
