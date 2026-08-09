@@ -1,0 +1,49 @@
+"""LiteLLM 网关（§8.1）。
+
+统一 provider + 路由/故障转移：主用 DeepSeek，备用兜底。
+业务代码统一走 call() / call_structured()，不直接碰 litellm。
+"""
+
+from litellm import Router
+
+from app.core.config import settings
+
+# 配置两个模型：主用 DeepSeek，备用兜底（可配 OpenAI 兼容任意 key）
+router = Router(
+    model_list=[
+        {
+            "model_name": "primary",
+            "litellm_params": {
+                "model": settings.llm_model,
+                "api_key": settings.deepseek_api_key,
+            },
+        },
+        {
+            "model_name": "fallback",
+            "litellm_params": {
+                "model": settings.llm_model,
+                "api_key": settings.backup_model_key or settings.deepseek_api_key,
+            },
+        },
+    ],
+    fallbacks=[{"primary": ["fallback"]}],   # 主模型失败/限流时切备用
+    num_retries=2,
+)
+
+
+async def call(
+    messages: list[dict],
+    model: str = "primary",
+    temperature: float = 0.7,
+    max_tokens: int = 1024,
+    json_mode: bool = False,
+) -> str:
+    """调用 LLM 并返回文本内容。"""
+    resp = await router.acompletion(
+        model=model,
+        messages=messages,
+        temperature=temperature,
+        max_tokens=max_tokens,
+        response_format={"type": "json_object"} if json_mode else None,
+    )
+    return resp.choices[0].message.content

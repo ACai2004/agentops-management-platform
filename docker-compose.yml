@@ -1,0 +1,45 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: agentops-postgres
+    environment:
+      POSTGRES_USER: agentops
+      POSTGRES_PASSWORD: agentops
+      POSTGRES_DB: agentops
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U agentops -d agentops"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # backend 服务在 Layer 0 提供 Dockerfile 骨架；完整功能随各 Layer 落地
+  backend:
+    build:
+      context: ./backend
+    env_file:
+      - .env
+    environment:
+      # 容器内通过服务名访问 postgres，覆盖 .env 中的 localhost 地址
+      DATABASE_URL: postgresql+psycopg://agentops:agentops@postgres:5432/agentops
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000
+
+  # frontend 服务在 Layer 8 加入（当前前端尚未实现）
+  # frontend:
+  #   build:
+  #     context: ./frontend
+  #   ports:
+  #     - "5173:5173"
+  #   depends_on:
+  #     - backend
+
+volumes:
+  pgdata:
