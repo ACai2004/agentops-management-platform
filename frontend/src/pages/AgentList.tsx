@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
-import { Button, Card, Col, Empty, Row, Space, Typography, message } from 'antd'
-import { PlusOutlined } from '@ant-design/icons'
+import { Button, Card, Col, Empty, Popconfirm, Row, Space, Typography, message } from 'antd'
+import { DeleteOutlined, PlusOutlined } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
 import { api } from '../api/client'
 import type { Agent } from '../api/client'
@@ -31,6 +31,16 @@ export default function AgentList() {
     }
   }
 
+  const remove = async (id: string) => {
+    try {
+      await api.deleteAgent(id)
+      message.success('已删除（历史数据保留）')
+      load()
+    } catch (e: any) {
+      message.error(e.response?.data?.message || '删除失败')
+    }
+  }
+
   return (
     <div style={{ maxWidth: 1200 }}>
       <Space style={{ marginBottom: 16 }} align="center">
@@ -47,8 +57,27 @@ export default function AgentList() {
         <Row gutter={[16, 16]}>
           {agents.map((a) => (
             <Col key={a.id} xs={24} sm={12} md={8} lg={6}>
-              <Card hoverable onClick={() => navigate(`/agents/${a.id}`)}>
-                <Card.Meta title={a.name} description={a.description || '暂无描述'} />
+              <Card
+                hoverable
+                actions={[
+                  <Popconfirm
+                    key="del"
+                    title="删除该 Agent？"
+                    description="历史数据保留，仅从列表隐藏"
+                    onConfirm={() => remove(a.id)}
+                  >
+                    <Button type="link" danger size="small" icon={<DeleteOutlined />}>
+                      删除
+                    </Button>
+                  </Popconfirm>,
+                ]}
+              >
+                <div
+                  onClick={() => navigate(`/agents/${a.id}`)}
+                  style={{ cursor: 'pointer' }}
+                >
+                  <Card.Meta title={a.name} description={a.description || '暂无描述'} />
+                </div>
               </Card>
             </Col>
           ))}

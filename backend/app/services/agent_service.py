@@ -1,7 +1,9 @@
-"""AgentService：创建 Agent / 版本 CRUD / 草稿复制（§10.1）。
+"""AgentService：创建 Agent / 版本 CRUD / 草稿复制 / 软删除（§10.1）。
 
 状态用字符串常量定义在此（§7 约定：不引第三方枚举库）。
 """
+
+from datetime import UTC, datetime
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -46,6 +48,27 @@ def create_agent(
     db.commit()
     db.refresh(agent)
     return agent
+
+
+def list_agents(db: Session) -> list[Agent]:
+    """未删除的 Agent 列表（软删除过滤）。"""
+    return list(
+        db.scalars(select(Agent).where(Agent.deleted_at.is_(None)).order_by(Agent.created_at.desc()))
+    )
+
+
+def get_agent(db: Session, agent_id) -> Agent | None:
+    """获取未删除的 Agent。"""
+    return db.scalar(select(Agent).where(Agent.id == agent_id, Agent.deleted_at.is_(None)))
+
+
+def delete_agent(db: Session, agent_id) -> None:
+    """软删除：标记 deleted_at，历史数据（版本/记录/反馈）保留。"""
+    agent = get_agent(db, agent_id)
+    if not agent:
+        raise KeyError(f"Agent {agent_id} 不存在或已删除")
+    agent.deleted_at = datetime.now(UTC)
+    db.commit()
 
 
 def create_draft(db: Session, agent_id, *, created_by: str = "admin") -> AgentVersion:

@@ -111,6 +111,7 @@ export const api = {
   getAgent: (id: string) => http.get<Agent>(`/agents/${id}`).then((r) => r.data),
   createAgent: (body: { name: string; description?: string }) =>
     http.post<Agent>('/agents', body).then((r) => r.data),
+  deleteAgent: (id: string) => http.delete(`/agents/${id}`).then((r) => r.data),
   listVersions: (agentId: string) => http.get<Version[]>(`/agents/${agentId}/versions`).then((r) => r.data),
   createDraft: (agentId: string) => http.post<Version>(`/agents/${agentId}/versions`).then((r) => r.data),
   getVersion: (id: string) => http.get<Version>(`/versions/${id}`).then((r) => r.data),

@@ -11,7 +11,6 @@ export default function TestTab({ agentId, version }: { agentId: string; version
   const [trace, setTrace] = useState<Trace | null>(null)
 
   const run = async () => {
-    if (!input.trim()) return message.warning('请输入测试内容')
     if (!version) return message.warning('请先创建版本')
     setRunning(true)
     try {
@@ -41,7 +40,7 @@ export default function TestTab({ agentId, version }: { agentId: string; version
           rows={3}
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          placeholder="输入测试内容，如：我和朋友两个人第一次来这家店"
+          placeholder="补充说明（可选）：如“我们三个人，周五晚上”。图片优先的流程可直接上传小票运行，可不填文本。"
         />
         <Space style={{ marginTop: 12 }}>
           <Upload beforeUpload={onFile} showUploadList={false} accept="image/*">
