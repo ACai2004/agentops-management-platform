@@ -1,10 +1,50 @@
-"""AnalysisService：Trace 查询 / 反馈标注（§10.3）。"""
+"""AnalysisService：Trace 查询 / 反馈标注 / 运行入库（§10.3）。"""
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.contracts import AgentConfig
+from app.models.agent import AgentVersion
 from app.models.feedback import Feedback
 from app.models.trace import Trace
+from app.runtime.runner import run_agent
+from app.services import datasource_service, knowledge_service
+
+
+async def run_version(db: Session, version: AgentVersion, user_input: str, env: str = "test", image_url: str | None = None) -> Trace:
+    """运行一个 AgentVersion 并入库为 Trace（服务层从 DB 解析数据源/知识注入）。"""
+    config = AgentConfig.model_validate(
+        {
+            "prompt": version.prompt,
+            "workflow": version.workflow_config,
+            "capability_bindings": version.capability_bindings,
+            "knowledge_bindings": version.knowledge_bindings,
+            "model_settings": version.model_settings,
+        }
+    )
+    datasources = {
+        d.name: {"base_url": d.base_url, "method": d.method, "headers": d.headers}
+        for d in datasource_service.list_datasources(db)
+    }
+    knowledges = {k.name: k.content for k in knowledge_service.list_knowledges(db)}
+    record = await run_agent(
+        config, user_input, env,
+        agent_id=str(version.agent_id), version_id=str(version.id),
+        image_url=image_url, datasources=datasources, knowledges=knowledges,
+    )
+    trace = Trace(
+        agent_id=version.agent_id,
+        version_id=version.id,
+        env=env,
+        input=user_input,
+        steps=[s.model_dump() for s in record.steps],
+        output=record.output,
+        model=record.model,
+    )
+    db.add(trace)
+    db.commit()
+    db.refresh(trace)
+    return trace
 
 
 def list_traces(

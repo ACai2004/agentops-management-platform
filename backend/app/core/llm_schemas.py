@@ -4,9 +4,10 @@
 - Change / ModificationPlan：AI 优化助手返回的可应用修改方案
 """
 
+import re
 from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 
 class DecisionOutput(BaseModel):
@@ -26,3 +27,12 @@ class ModificationPlan(BaseModel):
     root_cause: str                 # 为什么产生
     suggestions: list[str]          # 建议摘要（展示）
     changes: list[Change]           # 可被 backend 直接应用的变更列表
+
+    @field_validator("suggestions", mode="before")
+    @classmethod
+    def _coerce_suggestions(cls, v):
+        """容错：模型偶发把 suggestions 返回成字符串（"1. ... 2. ..."），自动拆成数组。"""
+        if isinstance(v, str):
+            parts = re.split(r"[\n;]+", v)
+            return [p.strip().lstrip("- ").strip() for p in parts if p.strip()]
+        return v

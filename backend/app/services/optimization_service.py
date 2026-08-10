@@ -98,11 +98,11 @@ async def generate_plan(db: Session, feedback_id) -> PlanModel:
         "其中 suggestions 必须是一个字符串数组；changes 至少一项；每个 change 的 description 必填。"
     )
     user = (
-        f"【Agent 版本配置】\n{config.model_dump_json(indent=2)}\n\n"
+        f"【Agent 版本配置摘要】\n{_workflow_summary(config)}\n\n"
         f"【运行 Trace 步骤】\n{_trace_summary(trace)}\n\n"
         f"【业务人员反馈】\n{fb.text}"
     )
-    plan = await call_structured(ModificationPlan, system=system, user=user)
+    plan = await call_structured(ModificationPlan, system=system, user=user, max_retries=5)
 
     record = PlanModel(
         feedback_id=feedback_id,
@@ -128,6 +128,15 @@ def _trace_summary(trace: Trace) -> str:
         output = str(s.get("output", ""))[:200]
         lines.append(f"- {node_id} ({node_type}): {output}")
     return "\n".join(lines) or "（无）"
+
+
+def _workflow_summary(config: AgentConfig) -> str:
+    """精简 workflow 摘要（不塞整个配置 JSON——模型更稳、更省 token）。"""
+    lines = [f"prompt: {config.prompt[:100]}"]
+    for nid, node in config.workflow.steps.items():
+        snippet = (node.prompt or "")[:80]
+        lines.append(f"- {nid} [{node.type}]: {snippet}")
+    return "\n".join(lines)
 
 
 # ---------------------------------------------------------------------------

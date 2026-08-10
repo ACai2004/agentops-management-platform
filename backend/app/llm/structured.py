@@ -15,6 +15,19 @@ class StructuredOutputError(Exception):
     """连续 max_retries 次仍无法通过 schema 校验。"""
 
 
+def _extract_json(raw: str) -> str:
+    """剥离模型可能加上的 markdown 代码围栏（```json ... ```），返回纯 JSON。"""
+    raw = raw.strip()
+    if raw.startswith("```"):
+        lines = raw.split("\n")
+        if lines and lines[0].strip().startswith("```"):
+            lines = lines[1:]
+        if lines and lines[-1].strip() == "```":
+            lines = lines[:-1]
+        raw = "\n".join(lines).strip()
+    return raw
+
+
 async def call_structured(
     schema: type[BaseModel],
     system: str,
@@ -31,9 +44,10 @@ async def call_structured(
             ],
             model=model,
             json_mode=True,
+            max_tokens=4096,  # 结构化输出 JSON 较长，防止被截断
         )
         try:
-            data = json.loads(raw)
+            data = json.loads(_extract_json(raw))
             return schema.model_validate(data)
         except (json.JSONDecodeError, ValidationError) as e:
             # 把错误信息回喂给 LLM 再试

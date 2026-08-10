@@ -36,6 +36,10 @@ include = ["app*"]
 target-version = "py311"
 line-length = 120
 
+[tool.ruff.lint]
+# B008：FastAPI 的 Depends(get_db) 作为参数默认值是标准写法，无需检查
+ignore = ["B008"]
+
 [tool.black]
 target-version = ["py311"]
 line-length = 120
