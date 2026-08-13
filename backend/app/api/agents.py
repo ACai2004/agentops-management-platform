@@ -41,6 +41,17 @@ def get_agent(agent_id: UUID, db: Session = Depends(get_db)):
     return data
 
 
+class UpdateAgentBody(BaseModel):
+    name: str | None = None
+    description: str | None = None
+
+
+@router.put("/{agent_id}")
+def update_agent(agent_id: UUID, body: UpdateAgentBody, db: Session = Depends(get_db)):
+    """重命名 / 改描述。"""
+    return dump(agent_service.update_agent(db, agent_id, name=body.name, description=body.description))
+
+
 @router.delete("/{agent_id}")
 def delete_agent(agent_id: UUID, db: Session = Depends(get_db)):
     """软删除 Agent（历史数据保留，从列表隐藏）。"""

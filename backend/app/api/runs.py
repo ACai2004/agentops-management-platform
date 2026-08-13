@@ -17,8 +17,9 @@ router = APIRouter(prefix="/api", tags=["runs"])
 
 
 class RunBody(BaseModel):
-    input: str
-    image_url: str | None = None
+    input: str = ""                   # 兼容：单文本输入
+    image_url: str | None = None      # 兼容：单图片输入
+    inputs: dict | None = None        # 命名输入 {字段名: 值}（按工作流输入清单）
     version_id: UUID | None = None
     env: str = "test"
 
@@ -32,7 +33,9 @@ async def run_agent_endpoint(agent_id: UUID, body: RunBody, db: Session = Depend
     if not version_id:
         raise KeyError("Agent 尚无当前版本")
     version = db.get(AgentVersion, version_id)
-    trace = await analysis_service.run_version(db, version, body.input, body.env, image_url=body.image_url)
+    trace = await analysis_service.run_version(
+        db, version, body.input, body.env, image_url=body.image_url, inputs=body.inputs
+    )
     return dump(trace)
 
 

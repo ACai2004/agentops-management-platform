@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
-import { Button, Result, Space, Spin, Tabs, Typography, message } from 'antd'
+import { Button, Input, Modal, Result, Space, Spin, Tabs, Typography, message } from 'antd'
+import { EditOutlined } from '@ant-design/icons'
 import { useNavigate, useParams } from 'react-router-dom'
 import { api } from '../api/client'
 import type { Agent, Version } from '../api/client'
@@ -15,6 +16,8 @@ export default function AgentWorkspace() {
   const [agent, setAgent] = useState<Agent | null>(null)
   const [versions, setVersions] = useState<Version[]>([])
   const [loading, setLoading] = useState(true)
+  const [renameOpen, setRenameOpen] = useState(false)
+  const [renameValue, setRenameValue] = useState('')
   const navigate = useNavigate()
 
   const load = async () => {
@@ -46,6 +49,23 @@ export default function AgentWorkspace() {
       />
     )
 
+  const openRename = () => {
+    setRenameValue(agent.name)
+    setRenameOpen(true)
+  }
+  const rename = async () => {
+    const name = renameValue.trim()
+    if (!name) return message.warning('名称不能为空')
+    try {
+      await api.updateAgent(id, { name })
+      message.success('已重命名')
+      setRenameOpen(false)
+      load()
+    } catch (e: any) {
+      message.error(e.response?.data?.message || '重命名失败')
+    }
+  }
+
   // 当前编辑的版本：最新草稿，否则线上（发布版本）
   const draft = versions.find((v) => v.status === 'draft')
   const current = versions.find((v) => v.id === agent.current_version_id)
@@ -57,6 +77,13 @@ export default function AgentWorkspace() {
         <Typography.Title level={4} style={{ margin: 0 }}>
           {agent.name}
         </Typography.Title>
+        <Button
+          type="text"
+          size="small"
+          icon={<EditOutlined />}
+          onClick={openRename}
+          title="重命名"
+        />
         <Typography.Text type="secondary">
           线上 V{current?.version_no ?? '-'}
           {draft ? ` · 草稿 V${draft.version_no} 编辑中` : ''}
@@ -89,6 +116,22 @@ export default function AgentWorkspace() {
           },
         ]}
       />
+      <Modal
+        title="重命名 Agent"
+        open={renameOpen}
+        onOk={rename}
+        onCancel={() => setRenameOpen(false)}
+        okText="保存"
+        cancelText="取消"
+        width={360}
+      >
+        <Input
+          value={renameValue}
+          onChange={(e) => setRenameValue(e.target.value)}
+          placeholder="输入新的名称"
+          onPressEnter={rename}
+        />
+      </Modal>
     </div>
   )
 }

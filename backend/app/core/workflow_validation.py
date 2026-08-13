@@ -22,13 +22,14 @@ class WorkflowIssue(BaseModel):
 
 def validate_workflow(
     config: AgentConfig,
-    existing_datasources: set[str] | None = None,
+    existing_datasources: set[str] | dict[str, dict] | None = None,
     existing_knowledge: set[str] | None = None,
 ) -> list[WorkflowIssue]:
     """校验整个 AgentConfig（含 workflow + 模型设置），返回全部问题。
 
-    existing_datasources / existing_knowledge：已有资源名集合；为 None 时跳过对应检查
-    （由服务层从 DB 传入）。
+    existing_datasources：数据源名集合 或 {名称: {"param_defs": [...]}} 配置字典；
+    传配置字典时额外检查 http 节点的必填参数是否配置。为 None 时跳过对应检查。
+    existing_knowledge：知识名集合。
     """
     issues: list[WorkflowIssue] = []
     workflow: WorkflowConfig = config.workflow
@@ -62,6 +63,17 @@ def validate_workflow(
         for nid in _find_unreachable(steps, workflow.start):
             issues.append(_issue(nid, "UNREACHABLE_NODE", "warning", "节点从 start 不可达"))
 
+    # ---------------- Layer 3A · 输入清单 ----------------
+    seen_inputs: set[str] = set()
+    for f in workflow.inputs:
+        if not f.name.strip():
+            issues.append(_issue(None, "INPUT_EMPTY_NAME", "error", "输入字段名不能为空"))
+        elif f.name in seen_inputs:
+            issues.append(_issue(None, "INPUT_DUPLICATE_NAME", "error", f"输入字段名重复：{f.name}"))
+        if f.type == "select" and not f.options:
+            issues.append(_issue(None, "INPUT_SELECT_NO_OPTIONS", "error", f"输入 {f.name} 是下拉类型但未配置选项"))
+        seen_inputs.add(f.name)
+
     # ---------------- Layer 3A · Semantic 节点字段 ----------------
     for nid, node in steps.items():
         if node.type in ("llm", "decision"):
@@ -84,9 +96,33 @@ def validate_workflow(
                 issues.append(_issue(nid, "LLM_HAS_BRANCHES", "warning", "llm 不使用 branches（已忽略）"))
         if node.type == "end" and (node.next or node.branches):
             issues.append(_issue(nid, "END_HAS_NEXT", "warning", "end 不应有 next/branches（已忽略）"))
+        if node.type == "template":
+            if not node.save_as:
+                issues.append(_issue(nid, "TEMPLATE_MISSING_SAVE_AS", "error", "template 必须有 save_as"))
+            if not node.next:
+                issues.append(_issue(nid, "TEMPLATE_MISSING_NEXT", "warning", "template 必须有 next"))
+            if not (node.template and node.template.strip()):
+                issues.append(_issue(nid, "TEMPLATE_MISSING_TEMPLATE", "warning", "template 未配置模板内容（输出将为空）"))
+            if node.branches:
+                issues.append(_issue(nid, "TEMPLATE_HAS_BRANCHES", "warning", "template 不使用 branches（已忽略）"))
         if node.type == "http":
             if existing_datasources is not None and node.datasource not in existing_datasources:
                 issues.append(_issue(nid, "DATASOURCE_MISSING", "error", f"数据源 {node.datasource} 不存在"))
+            # 必填参数检查：数据源参数契约声明的必填参数，节点 params 必须配置非空值
+            if isinstance(existing_datasources, dict) and node.datasource in existing_datasources:
+                param_defs = (existing_datasources[node.datasource] or {}).get("param_defs") or []
+                for p in param_defs:
+                    if p.get("required"):
+                        value = (node.params or {}).get(p.get("name"))
+                        if value is None or str(value).strip() == "":
+                            issues.append(
+                                _issue(
+                                    nid,
+                                    "HTTP_MISSING_REQUIRED_PARAM",
+                                    "error",
+                                    f"数据源 {node.datasource} 的必填参数「{p.get('label') or p.get('name')}」未配置",
+                                )
+                            )
             if not node.save_as:
                 issues.append(_issue(nid, "HTTP_MISSING_SAVE_AS", "error", "http 必须有 save_as"))
             if not node.next:
@@ -124,7 +160,7 @@ def _resolve_node_model(node, config: AgentConfig) -> str:
 def _next_targets(steps, nid: str) -> list[str]:
     """按节点类型返回出边目标（不含 END）。"""
     node = steps[nid]
-    if node.type in ("llm", "http"):
+    if node.type in ("llm", "http", "template"):
         return [node.next] if node.next else []
     if node.type == "decision":
         return list((node.branches or {}).values())

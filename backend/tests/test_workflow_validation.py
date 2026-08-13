@@ -148,6 +148,30 @@ def test_http_rules():
     assert any(i.code == "HTTP_MISSING_NEXT" for i in issues2)
 
 
+def test_http_required_param():
+    """数据源声明必填参数 → 节点 params 未配置 → error（拦住保存/发布）。"""
+    ds = {"weather": {"param_defs": [{"name": "city", "label": "城市编码", "required": True, "type": "text"}]}}
+    wf = {
+        "start": "fetch",
+        "steps": {
+            "fetch": {"type": "http", "datasource": "weather", "params": {}, "save_as": "w", "next": "end"},
+            "end": {"type": "end"},
+        },
+    }
+    issues = _issues(_config(wf), existing_datasources=ds)
+    assert any(i.code == "HTTP_MISSING_REQUIRED_PARAM" and i.severity == "error" for i in issues)
+    # 配置了必填参数 → 干净
+    wf2 = {
+        "start": "fetch",
+        "steps": {
+            "fetch": {"type": "http", "datasource": "weather", "params": {"city": "{{adcode}}"}, "save_as": "w", "next": "end"},
+            "end": {"type": "end"},
+        },
+    }
+    issues2 = _issues(_config(wf2), existing_datasources=ds)
+    assert not any(i.code == "HTTP_MISSING_REQUIRED_PARAM" for i in issues2)
+
+
 # ---------- Layer 3B · 模型能力 ----------
 
 

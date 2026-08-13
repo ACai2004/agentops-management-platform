@@ -3,6 +3,7 @@
 每个节点执行时都记录 TraceStep 追加到 state["trace_steps"]（§6 运行规则）。
 """
 
+import asyncio
 import time
 from collections.abc import Callable
 from urllib.parse import parse_qsl, urlencode, urlparse
@@ -50,7 +51,9 @@ def _build_url(base_url: str, params: dict | None, state: AgentState) -> str:
     parsed = urlparse(url)
     merged = dict(parse_qsl(parsed.query))
     for k, v in (params or {}).items():
-        merged[k] = _interpolate(str(v), state)
+        value = _interpolate(str(v), state)
+        if value:  # 空值参数不拼进 URL（如可选参数没填、{{变量}} 运行时没值）
+            merged[k] = value
     return parsed._replace(query=urlencode(merged)).geturl()
 
 
@@ -66,15 +69,37 @@ def _system_context(state: AgentState, node_prompt: str | None = None) -> str:
     return "\n\n".join(parts)
 
 
+def _inputs_context(state: AgentState) -> str:
+    """把命名输入渲染成 user 上下文（按 schema 的 label；image 类型不塞文本）。
+
+    例如「小票照片」在视觉节点走 image content part，这里只放 text/number/select。
+    """
+    schema = (state.get("agent_config") or {}).get("workflow") or {}
+    labels = {f.get("name"): (f.get("label") or f.get("name")) for f in (schema.get("inputs") or [])}
+    image_names = {f.get("name") for f in (schema.get("inputs") or []) if f.get("type") == "image"}
+    parts = []
+    for name, value in (state.get("inputs") or {}).items():
+        if name in image_names or value is None or value == "":
+            continue
+        parts.append(f"{labels.get(name, name)}：{value}")
+    return "\n".join(parts)
+
+
 def _build_messages(node: WorkflowNode, state: AgentState) -> list[dict]:
     """llm 节点：系统消息 = 提示词 + 知识 + 节点 prompt；用户消息 = 上下文 + 前序产物。
 
     `image_input=true` 时用户消息含图片 content part（OpenAI 兼容 content 数组）。
     """
-    system = _system_context(state, node.prompt)
+    # llm 提示词支持 {{变量}} 插值（业务人员可显式引用前序产物）
+    node_prompt = _interpolate(node.prompt, state) if node.prompt else node.prompt
+    system = _system_context(state, node_prompt)
 
     user_parts = []
-    if state.get("input"):
+    inputs_context = _inputs_context(state)
+    if inputs_context:
+        user_parts.append(inputs_context)
+    elif state.get("input"):
+        # 兼容：无命名输入时的旧路径
         user_parts.append(f"用户输入：{state['input']}")
     for key, value in state["vars"].items():
         if value is not None and value != "":
@@ -98,7 +123,8 @@ def _build_messages(node: WorkflowNode, state: AgentState) -> list[dict]:
 
 def _build_decision_prompt(node: WorkflowNode, state: AgentState) -> str:
     """decision 节点：判断指令 + 可选分支值 + 上下文组装成 user 消息。"""
-    parts = [f"判断指令：{node.prompt}"] if node.prompt else []
+    prompt = _interpolate(node.prompt, state) if node.prompt else None
+    parts = [f"判断指令：{prompt}"] if prompt else []
     if node.branches:
         parts.append(f"可选分支值：{', '.join(node.branches.keys())}")
     if state.get("input"):
@@ -122,7 +148,17 @@ def make_llm_node(node_id: str, node: WorkflowNode) -> Callable:
     async def _node(state: AgentState) -> AgentState:
         started = time.perf_counter()
         messages = _build_messages(node, state)
-        content = await call(messages, model=_router_model(node, state), json_mode=False)
+        model = _router_model(node, state)
+        content = await call(messages, model=model, json_mode=False)
+        # 空输出重试：DeepSeek 偶发返回空内容（限流/突发），重试并提示模型避免整条流断掉
+        for attempt in range(5):
+            if content:
+                break
+            await asyncio.sleep(min(1.5 * (attempt + 1), 6))
+            msgs = list(messages)
+            if msgs and msgs[-1]["role"] == "user" and isinstance(msgs[-1]["content"], str):
+                msgs[-1] = {**msgs[-1], "content": msgs[-1]["content"] + "\n\n（你上次没有返回任何内容，请重新完整输出。）"}
+            content = await call(msgs, model=model, json_mode=False)
         if node.save_as:
             state["vars"][node.save_as] = content
         state["trace_steps"].append(
@@ -206,6 +242,35 @@ def make_http_node(node_id: str, node: WorkflowNode) -> Callable:
                 node_type="http",
                 input=node.datasource or "",
                 output=result,
+                latency_ms=(time.perf_counter() - started) * 1000,
+            ).model_dump()
+        )
+        return state
+
+    return _node
+
+
+def make_template_node(node_id: str, node: WorkflowNode) -> Callable:
+    """template 节点：纯函数模板拼接（确定性，不经过 LLM）。
+
+    template 支持 {{system_prompt}}（Agent 静态系统提示）与 {{var}}（前序节点产物）。
+    通用文本模板：可拼提示词、报告、格式化文本等（对应 Dify 模板转换 / Langflow Prompt）。
+    对应 Java 版 PromptAssembler：Runtime Prompt = Static System Prompt + 分隔符 + Dynamic Context。
+    """
+
+    async def _node(state: AgentState) -> AgentState:
+        started = time.perf_counter()
+        template = node.template or ""
+        agent_prompt = (state.get("agent_config") or {}).get("prompt", "")
+        text = template.replace("{{system_prompt}}", agent_prompt)
+        text = _interpolate(text, state)
+        if node.save_as:
+            state["vars"][node.save_as] = text
+        state["trace_steps"].append(
+            TraceStep(
+                node_id=node_id,
+                node_type="template",
+                output=text,
                 latency_ms=(time.perf_counter() - started) * 1000,
             ).model_dump()
         )

@@ -16,6 +16,7 @@ class Trace(Base):
     version_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("agent_versions.id"), nullable=False)
     env: Mapped[str] = mapped_column(String, nullable=False)  # "test" | "live"
     input: Mapped[str] = mapped_column(Text, nullable=False)
+    inputs: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)  # 命名输入 {字段名: 值}
     steps: Mapped[list] = mapped_column(JSONB, nullable=False)  # list[TraceStep]，按 §5.2 结构
     output: Mapped[str] = mapped_column(Text, nullable=False)
     model: Mapped[str] = mapped_column(String, nullable=False)

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   Background,
   Controls,
@@ -13,30 +13,41 @@ import {
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 import { Button, Input, Modal, Typography, message } from 'antd'
+import { NodeIndexOutlined } from '@ant-design/icons'
+import { useNavigate } from 'react-router-dom'
 import { api } from '../api/client'
-import type { Datasource, WorkflowConfig } from '../api/client'
+import type { Datasource, InputField, WorkflowConfig } from '../api/client'
+import FlowEdge, { EdgeActionsContext } from './FlowEdge'
 import { NODE_META, PALETTE } from './palette'
 import { configToGraph, graphToConfig, START_ID } from './serialize'
 import NodeConfigPanel from './NodeConfigPanel'
 import { nodeTypes } from './nodeTypes'
+
+// 连线组件：点选后浮出 删除/改分支值 按钮
+const flowEdgeTypes = { default: FlowEdge }
 
 export default function WorkflowCanvas({
   version,
   readOnly,
   onSaved,
   datasources,
+  agentId,
 }: {
   version: any
   readOnly: boolean
   onSaved: () => void
   datasources: Datasource[]
+  agentId: string
 }) {
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>([])
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([])
   const [selected, setSelected] = useState<Node | null>(null)
+  const [drawMode, setDrawMode] = useState(false)
+  const [drawSource, setDrawSource] = useState<string | null>(null)
   const [branchModal, setBranchModal] = useState<{ conn?: Connection; edge?: Edge } | null>(null)
   const [branchLabel, setBranchLabel] = useState('')
   const [saving, setSaving] = useState(false)
+  const navigate = useNavigate()
 
   // 初始化：根据版本配置加载画布
   useEffect(() => {
@@ -60,12 +71,13 @@ export default function WorkflowCanvas({
     ])
   }
 
-  // 防呆：拒绝成环、连到开始/从结束连出
+  // 防呆：拒绝成环、连到开始/从结束连出；开始节点可手动连线指定起点（替换旧起点）
   const isValidConnection = useCallback(
     (conn: Connection | Edge) => {
       const c = conn as Connection
       if (!c.source || !c.target || c.source === c.target) return false
-      if (c.source === START_ID || c.target === START_ID) return false
+      if (c.target === START_ID) return false                 // 不能连进开始
+      if (c.source === START_ID) return true                  // 从开始拉线：允许（onConnect 里替换旧起点线）
       if (nodes.find((n) => n.id === c.source)?.type === 'end') return false
       const q = [c.source]
       const seen = new Set<string>()
@@ -81,8 +93,16 @@ export default function WorkflowCanvas({
     [nodes, edges],
   )
 
-  const onConnect = useCallback(
+  const createConnection = useCallback(
     (conn: Connection) => {
+      if (conn.source === START_ID) {
+        // 从开始节点拉线：替换已有的开始连线（起点只能有一个），并清掉旧连线
+        setEdges((eds) => [
+          ...eds.filter((e) => e.source !== START_ID),
+          { ...conn, id: `e-${START_ID}-${conn.target}` },
+        ])
+        return
+      }
       const sourceNode = nodes.find((n) => n.id === conn.source)
       if (sourceNode?.type === 'decision') {
         const n = edges.filter((e) => e.source === conn.source).length + 1
@@ -93,6 +113,36 @@ export default function WorkflowCanvas({
       }
     },
     [nodes, edges],
+  )
+
+  // 画线模式：点第一个节点设起点，点第二个节点连线（判断分支会弹框设分支值）
+  const handleNodeClick = useCallback(
+    (_e: any, n: Node) => {
+      if (!drawMode) {
+        setSelected(n)
+        return
+      }
+      if (!drawSource) {
+        setDrawSource(n.id)
+        return
+      }
+      if (drawSource === n.id) {
+        setDrawSource(null) // 再点一次取消起点
+        return
+      }
+      const conn: Connection = { source: drawSource, target: n.id, sourceHandle: null, targetHandle: null }
+      if (isValidConnection(conn)) {
+        createConnection(conn)
+        const srcType = nodes.find((x) => x.id === drawSource)?.type
+        if (srcType === 'decision') {
+          setDrawSource(null) // 判断分支：画完一条继续点下一个分支目标
+        } else {
+          setDrawMode(false)
+          setDrawSource(null)
+        }
+      }
+    },
+    [drawMode, drawSource, nodes, isValidConnection, createConnection],
   )
 
   const onEdgeDoubleClick = useCallback((_: React.MouseEvent, edge: Edge) => {
@@ -118,7 +168,8 @@ export default function WorkflowCanvas({
     setSaving(true)
     try {
       const cfg = graphToConfig(nodes, edges)
-      await api.updateDraft(version.id, { workflow_config: cfg, prompt: version.prompt })
+      // 只保存工作流；系统提示词由 WorkflowTab 的独立按钮保存，避免互相覆盖
+      await api.updateDraft(version.id, { workflow_config: cfg })
       message.success('已保存')
       onSaved()
     } catch (e: any) {
@@ -128,10 +179,30 @@ export default function WorkflowCanvas({
     }
   }
 
-  const updateNodeConfig = (cfg: any) => {
+  const updateNodeConfig = (data: any) => {
     if (!selected) return
-    setNodes((ns) => ns.map((n) => (n.id === selected.id ? { ...n, data: { config: cfg } } : n)))
-    setSelected((s) => (s ? { ...s, data: { config: cfg } } : s))
+    setNodes((ns) => ns.map((n) => (n.id === selected.id ? { ...n, data } : n)))
+    setSelected((s) => (s ? { ...s, data } : s))
+  }
+
+  // 删除 Agent：软删除（历史数据保留），确认后返回列表
+  const confirmDeleteAgent = () => {
+    Modal.confirm({
+      title: '确认要删除此工作流吗？',
+      content: '删除后历史数据保留，仅从列表隐藏（可恢复）。',
+      okText: '删除',
+      okButtonProps: { danger: true },
+      cancelText: '取消',
+      onOk: async () => {
+        try {
+          await api.deleteAgent(agentId)
+          message.success('已删除')
+          navigate('/')
+        } catch (e: any) {
+          message.error(e.response?.data?.message || '删除失败')
+        }
+      },
+    })
   }
 
   const deleteNode = () => {
@@ -140,6 +211,37 @@ export default function WorkflowCanvas({
     setEdges((es) => es.filter((e) => e.source !== selected.id && e.target !== selected.id))
     setSelected(null)
   }
+
+  // 选中节点"可用的输入"：上游可达节点的产物变量 + 工作流输入 + 绑定知识 + 静态提示词
+  const nodeInputs = useMemo(() => {
+    if (!selected) return null
+    const reach = new Set<string>()
+    const queue = [selected.id]
+    while (queue.length) {
+      const id = queue.shift()!
+      for (const e of edges) {
+        if (e.target === id && !reach.has(e.source)) {
+          reach.add(e.source)
+          queue.push(e.source)
+        }
+      }
+    }
+    const vars = nodes
+      .filter((n) => reach.has(n.id) && n.id !== START_ID)
+      .map((n) => ({
+        nodeId: n.id,
+        saveAs: (n.data?.config as any)?.save_as as string | undefined,
+        type: n.type as string,
+      }))
+      .filter((v) => v.saveAs)
+    const inputs = (nodes.find((n) => n.id === START_ID)?.data?.inputs as InputField[] | undefined) || []
+    return {
+      vars,
+      inputs,
+      knowledge: (version?.knowledge_bindings as string[] | undefined) || [],
+      hasAgentPrompt: !!(version?.prompt && version.prompt.trim()),
+    }
+  }, [selected, nodes, edges, version])
 
   return (
     <div
@@ -170,29 +272,87 @@ export default function WorkflowCanvas({
         <Button type="primary" block style={{ marginTop: 20 }} loading={saving} disabled={readOnly} onClick={save}>
           保存
         </Button>
+        <Button danger block style={{ marginTop: 8 }} onClick={confirmDeleteAgent}>
+          删除 Agent
+        </Button>
       </div>
 
       <div style={{ flex: 1, position: 'relative' }}>
-        <ReactFlow
-          nodes={nodes}
-          edges={edges}
-          nodeTypes={nodeTypes}
-          onNodesChange={onNodesChange}
-          onEdgesChange={onEdgesChange}
-          isValidConnection={isValidConnection}
-          onConnect={onConnect}
-          onNodeClick={(_, n) => setSelected(n)}
-          onPaneClick={() => setSelected(null)}
-          onEdgeDoubleClick={onEdgeDoubleClick}
-          fitView
-          nodesDraggable={!readOnly}
-          nodesConnectable={!readOnly}
-          proOptions={{ hideAttribution: true }}
+        <EdgeActionsContext.Provider
+          value={{
+            onDeleteEdge: (id: string) => setEdges((eds) => eds.filter((e) => e.id !== id)),
+            onEditEdge: (id: string) => {
+              const edge = edges.find((e) => e.id === id)
+              if (edge) {
+                setBranchLabel(String(edge.label ?? ''))
+                setBranchModal({ edge })
+              }
+            },
+          }}
         >
-          <Background />
-          <Controls />
-          <MiniMap pannable zoomable />
-        </ReactFlow>
+          <ReactFlow
+            nodes={nodes}
+            edges={edges}
+            nodeTypes={nodeTypes}
+            edgeTypes={flowEdgeTypes}
+            onNodesChange={onNodesChange}
+            onEdgesChange={onEdgesChange}
+            isValidConnection={isValidConnection}
+            onConnect={createConnection}
+            onNodeClick={handleNodeClick}
+            onPaneClick={() => {
+              setSelected(null)
+              if (drawMode) setDrawSource(null)
+            }}
+            onEdgeDoubleClick={onEdgeDoubleClick}
+            fitView
+            nodesDraggable={!readOnly}
+            nodesConnectable={!readOnly}
+            proOptions={{ hideAttribution: true }}
+          >
+            <Background />
+            <Controls />
+            <MiniMap pannable zoomable />
+          </ReactFlow>
+        </EdgeActionsContext.Provider>
+
+        {/* 画线工具条 */}
+        {!readOnly && (
+          <div
+            style={{
+              position: 'absolute',
+              top: 8,
+              left: 8,
+              zIndex: 30,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+              background: '#fff',
+              border: '1px solid #f0f0f0',
+              borderRadius: 6,
+              padding: '4px 8px',
+              boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
+            }}
+          >
+            <Button
+              size="small"
+              type={drawMode ? 'primary' : 'default'}
+              icon={<NodeIndexOutlined />}
+              onClick={() => {
+                setDrawMode((m) => !m)
+                setDrawSource(null)
+              }}
+            >
+              {drawMode ? '退出画线' : '画线'}
+            </Button>
+            {drawMode && (
+              <Typography.Text style={{ fontSize: 12, color: '#666' }}>
+                {drawSource ? `已选起点 ${drawSource}，点目标节点连线` : '点一个节点作为起点'}
+              </Typography.Text>
+            )}
+          </div>
+        )}
+
         {readOnly && (
           <div
             style={{
@@ -217,6 +377,7 @@ export default function WorkflowCanvas({
           onChange={updateNodeConfig}
           onDelete={deleteNode}
           datasources={datasources}
+          nodeInputs={nodeInputs}
         />
       </div>
 

@@ -35,6 +35,16 @@ export default function TracesTab({ agentId }: { agentId: string }) {
               <b>输入：</b>
               {detail.input}
             </Typography.Paragraph>
+            {detail.inputs && Object.keys(detail.inputs).length > 0 && (
+              <Typography.Paragraph>
+                <b>输入项：</b>
+                {Object.entries(detail.inputs).map(([k, v]) => (
+                  <span key={k} style={{ marginRight: 12, whiteSpace: 'pre-wrap' }}>
+                    {k}: {typeof v === 'string' && v.length > 80 ? `${v.slice(0, 80)}…` : String(v)}
+                  </span>
+                ))}
+              </Typography.Paragraph>
+            )}
             <Typography.Paragraph>
               <b>输出：</b>
               {detail.output}

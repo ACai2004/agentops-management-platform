@@ -12,6 +12,16 @@ __pycache__/
 # 密钥文件（含 API keys，绝不入库）
 API Key.txt
 
+# 不随仓库推送的文档 / 素材（本地保留）
+docs/测试场景.md
+docs/完全自研AgentOps.md
+docs/AgentOps工作流校验与运行时设计.md
+docs/AgentOps技术实现蓝图.md
+docs/AgentOps前端设计.md
+docs/小票照片.jpg
+docs/小票识别（修改版）.txt
+frontend/README.md
+
 # 前端
 node_modules/
 dist/

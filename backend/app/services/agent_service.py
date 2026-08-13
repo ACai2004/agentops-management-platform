@@ -9,9 +9,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.contracts import AgentConfig, ModelSettings
-from app.core.workflow_validation import validate_workflow
 from app.models.agent import Agent, AgentVersion
-from app.services.resources import resource_sets
 
 VERSION_STATUS_DRAFT = "draft"
 VERSION_STATUS_PUBLISHED = "published"
@@ -60,6 +58,22 @@ def list_agents(db: Session) -> list[Agent]:
 def get_agent(db: Session, agent_id) -> Agent | None:
     """获取未删除的 Agent。"""
     return db.scalar(select(Agent).where(Agent.id == agent_id, Agent.deleted_at.is_(None)))
+
+
+def update_agent(db: Session, agent_id, *, name: str | None = None, description: str | None = None) -> Agent:
+    """重命名 / 改描述（Agent 级元数据）。"""
+    agent = get_agent(db, agent_id)
+    if not agent:
+        raise KeyError(f"Agent {agent_id} 不存在或已删除")
+    if name is not None:
+        if not name.strip():
+            raise ValueError("Agent 名称不能为空")
+        agent.name = name
+    if description is not None:
+        agent.description = description
+    db.commit()
+    db.refresh(agent)
+    return agent
 
 
 def delete_agent(db: Session, agent_id) -> None:
@@ -150,9 +164,9 @@ def update_draft(
     if model_settings is not None:
         version.model_settings = model_settings
 
-    # 整体校验为合法 AgentConfig，非法则抛错、不落库
+    # 结构校验：必须能存成合法 AgentConfig（否则无法加载/运行）
     try:
-        config = AgentConfig.model_validate(
+        AgentConfig.model_validate(
             {
                 "prompt": version.prompt,
                 "workflow": version.workflow_config,
@@ -164,15 +178,8 @@ def update_draft(
     except Exception as e:
         raise ValueError(f"版本配置校验失败：{e}") from e
 
-    # 拓扑 + 语义校验（含资源存在性）：error 拒绝保存（warning 放行，编辑中可暂存）
-    ds, kn = resource_sets(db)
-    errors = [
-        i for i in validate_workflow(config, existing_datasources=ds, existing_knowledge=kn)
-        if i.severity == "error"
-    ]
-    if errors:
-        raise ValueError(f"Workflow 校验未通过：{errors[0].message}")
-
+    # 保存不拦"逻辑问题"（拓扑 / 必填参数 / 悬空边 / 资源缺失等）——
+    # 这些在测试运行（runner）与发布（publish）时再校验提醒，业务人员可随时保存中间状态。
     db.commit()
     db.refresh(version)
     return version

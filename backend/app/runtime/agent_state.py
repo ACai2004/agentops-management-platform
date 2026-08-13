@@ -7,7 +7,8 @@ from typing import TypedDict
 
 
 class AgentState(TypedDict):
-    input: str                     # 用户输入
+    input: str                     # 用户输入（主文本；提供命名 inputs 时由此推导）
+    inputs: dict                   # 命名输入 {字段名: 值}（按 WorkflowConfig.inputs 收集）
     image_url: str                 # 可选：本次运行的输入图片 URL（视觉节点用）
     history: list[str]             # 对话历史（MVP 简化为最近 N 轮）
     vars: dict                     # 节点产物：{save_as: value}

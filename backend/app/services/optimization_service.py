@@ -12,7 +12,7 @@ from app.models.feedback import Feedback
 from app.models.plan import ModificationPlan as PlanModel
 from app.models.trace import Trace
 from app.services.agent_service import VERSION_STATUS_DRAFT
-from app.services.resources import resource_sets
+from app.services.resources import resource_data
 
 
 class OptimizationError(Exception):
@@ -185,8 +185,8 @@ def apply_plan(db: Session, plan_id, *, approved_by: str = "admin") -> AgentVers
     )
     new_config = apply_changes(config, [Change.model_validate(c) for c in plan.changes])
 
-    # 校验（含资源存在性）：error + warning 都拒绝（AI 生成候选按发布标准，失败回滚不产生版本）
-    ds, kn = resource_sets(db)
+    # 校验（含资源存在性 + 必填参数）：error + warning 都拒绝（AI 生成候选按发布标准，失败回滚不产生版本）
+    ds, kn = resource_data(db)
     issues = validate_workflow(new_config, existing_datasources=ds, existing_knowledge=kn)
     if issues:
         db.rollback()

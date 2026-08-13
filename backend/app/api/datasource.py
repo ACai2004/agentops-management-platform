@@ -16,6 +16,7 @@ class CreateDatasourceBody(BaseModel):
     base_url: str
     method: str = "GET"
     headers: dict | None = None
+    param_defs: list | None = None
     kind: str | None = None
     created_by: str = "admin"
 
@@ -24,6 +25,7 @@ class UpdateDatasourceBody(BaseModel):
     base_url: str | None = None
     method: str | None = None
     headers: dict | None = None
+    param_defs: list | None = None
     kind: str | None = None
 
 
@@ -41,6 +43,7 @@ def create_datasource(body: CreateDatasourceBody, db: Session = Depends(get_db))
             base_url=body.base_url,
             method=body.method,
             headers=body.headers,
+            param_defs=body.param_defs,
             kind=body.kind,
             created_by=body.created_by,
         )
@@ -56,6 +59,7 @@ def update_datasource(name: str, body: UpdateDatasourceBody, db: Session = Depen
             base_url=body.base_url,
             method=body.method,
             headers=body.headers,
+            param_defs=body.param_defs,
             kind=body.kind,
         )
     )

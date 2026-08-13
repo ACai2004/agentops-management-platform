@@ -1,5 +1,5 @@
 import type { Edge, Node } from '@xyflow/react'
-import type { WorkflowConfig, WorkflowNode } from '../api/client'
+import type { InputField, WorkflowConfig, WorkflowNode } from '../api/client'
 
 export const START_ID = '__start__'
 
@@ -11,6 +11,13 @@ export function graphToConfig(nodes: Node[], edges: Edge[]): WorkflowConfig {
   const start =
     startEdge?.target || stepNodes.find((n) => !incoming.has(n.id))?.id || stepNodes[0]?.id || 'end'
 
+  // 输入清单来自「输入」节点（start）的 data.inputs；变量名可选：留空自动取显示名，再空则 input_1/input_2…
+  const startNode = nodes.find((n) => n.id === START_ID)
+  const inputs = ((startNode?.data?.inputs as InputField[] | undefined) ?? []).map((f, i) => {
+    const name = (f.name && f.name.trim()) || (f.label && f.label.trim()) || `input_${i + 1}`
+    return { ...f, name }
+  })
+
   const steps: Record<string, WorkflowNode> = {}
   for (const n of stepNodes) {
     const cfg = (n.data?.config ?? { type: 'llm' }) as WorkflowNode
@@ -21,6 +28,7 @@ export function graphToConfig(nodes: Node[], edges: Edge[]): WorkflowConfig {
       save_as: cfg.save_as ?? '',
       ...(cfg.model_settings ? { model_settings: cfg.model_settings } : {}),
       ...(cfg.image_input ? { image_input: true } : {}),
+      ...(cfg.template ? { template: cfg.template } : {}),
     }
     if (base.type === 'decision') {
       base.branches = {}
@@ -32,13 +40,13 @@ export function graphToConfig(nodes: Node[], edges: Edge[]): WorkflowConfig {
       base.datasource = cfg.datasource ?? ''
       base.params = cfg.params ?? {}
       base.next = out[0]?.target ?? null
-    } else if (base.type === 'llm') {
+    } else if (base.type === 'llm' || base.type === 'template') {
       base.next = out[0]?.target ?? null
     }
     steps[n.id] = base
   }
   if (!steps['end']) steps['end'] = { type: 'end' }
-  return { start, steps }
+  return { start, steps, inputs }
 }
 
 // WorkflowConfig → 画布（加载时用，BFS 布局）
@@ -82,7 +90,12 @@ export function configToGraph(cfg: WorkflowConfig): { nodes: Node[]; edges: Edge
   }
 
   const nodes: Node[] = [
-    { id: START_ID, type: 'start', position: { x: -50, y: 60 }, data: {} },
+    {
+      id: START_ID,
+      type: 'start',
+      position: { x: -50, y: 60 },
+      data: { inputs: cfg.inputs ?? [] },
+    },
   ]
   for (const [id, node] of Object.entries(steps)) {
     nodes.push({ id, type: node.type, position: positions[id] ?? { x: 0, y: 0 }, data: { config: node } })

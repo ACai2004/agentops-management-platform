@@ -23,12 +23,21 @@ export interface Version {
   model_settings: Record<string, unknown>
   status: string
 }
+export interface InputField {
+  name: string
+  label?: string
+  type: 'text' | 'image' | 'number' | 'select'
+  required?: boolean
+  placeholder?: string
+  options?: string[]
+}
 export interface WorkflowConfig {
   start: string
   steps: Record<string, WorkflowNode>
+  inputs?: InputField[]
 }
 export interface WorkflowNode {
-  type: 'llm' | 'decision' | 'end' | 'http'
+  type: 'llm' | 'decision' | 'end' | 'http' | 'template'
   prompt?: string | null
   save_as?: string | null
   next?: string | null
@@ -37,6 +46,7 @@ export interface WorkflowNode {
   datasource?: string | null
   params?: Record<string, string> | null
   image_input?: boolean
+  template?: string | null
 }
 export interface Trace {
   id: string
@@ -44,6 +54,7 @@ export interface Trace {
   version_id: string
   env: string
   input: string
+  inputs?: Record<string, unknown>
   steps: TraceStep[]
   output: string
   model: string
@@ -95,12 +106,21 @@ export interface Capability {
   description: string
   behavior_instruction: string
 }
+export interface DatasourceParam {
+  name: string
+  label?: string
+  required?: boolean
+  type?: 'text' | 'number' | 'select'
+  options?: string[]
+  placeholder?: string
+}
 export interface Datasource {
   id: string
   name: string
   base_url: string
   method: string
   headers: Record<string, unknown>
+  param_defs?: DatasourceParam[]
   kind?: string
 }
 
@@ -111,6 +131,8 @@ export const api = {
   getAgent: (id: string) => http.get<Agent>(`/agents/${id}`).then((r) => r.data),
   createAgent: (body: { name: string; description?: string }) =>
     http.post<Agent>('/agents', body).then((r) => r.data),
+  updateAgent: (id: string, body: { name?: string; description?: string }) =>
+    http.put<Agent>(`/agents/${id}`, body).then((r) => r.data),
   deleteAgent: (id: string) => http.delete(`/agents/${id}`).then((r) => r.data),
   listVersions: (agentId: string) => http.get<Version[]>(`/agents/${agentId}/versions`).then((r) => r.data),
   createDraft: (agentId: string) => http.post<Version>(`/agents/${agentId}/versions`).then((r) => r.data),
@@ -124,8 +146,10 @@ export const api = {
     http.post(`/agents/${agentId}/rollback`, body).then((r) => r.data),
 
   // run / traces / feedback
-  run: (agentId: string, body: { input: string; image_url?: string; version_id?: string; env?: string }) =>
-    http.post<Trace>(`/agents/${agentId}/run`, body).then((r) => r.data),
+  run: (
+    agentId: string,
+    body: { input?: string; image_url?: string; inputs?: Record<string, unknown>; version_id?: string; env?: string },
+  ) => http.post<Trace>(`/agents/${agentId}/run`, body).then((r) => r.data),
   listTraces: (params: { agent_id?: string; env?: string; limit?: number }) =>
     http.get<Trace[]>('/traces', { params }).then((r) => r.data),
   getTrace: (id: string) => http.get<Trace>(`/traces/${id}`).then((r) => r.data),

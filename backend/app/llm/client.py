@@ -46,6 +46,16 @@ async def call(
     json_mode: bool = False,
 ) -> str:
     """调用 LLM 并返回文本内容。"""
+    if json_mode:
+        # DeepSeek 硬性要求：response_format=json_object 时 prompt 里必须出现 "json" 字样。
+        # 判断分支等结构化调用如果提示词没写 json，自动补一句引导，避免 BadRequestError。
+        text = " ".join(str(m.get("content", "")) for m in messages)
+        if "json" not in text.lower():
+            messages = [*messages]
+            if messages and messages[-1]["role"] == "user" and isinstance(messages[-1]["content"], str):
+                messages[-1] = {**messages[-1], "content": messages[-1]["content"] + "\n\n请严格按 JSON 格式输出。"}
+            else:
+                messages.append({"role": "user", "content": "请严格按 JSON 格式输出。"})
     resp = await router.acompletion(
         model=model,
         messages=messages,

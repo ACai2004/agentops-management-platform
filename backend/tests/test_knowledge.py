@@ -5,7 +5,8 @@ import pytest
 from app.core.contracts import AgentConfig, WorkflowConfig
 from app.runtime import nodes
 from app.runtime.runner import run_agent
-from app.services import agent_service, capability_service, datasource_service, knowledge_service
+from app.services import agent_service, capability_service, datasource_service, knowledge_service, publish_service
+from app.services.publish_service import PublishError
 from tests.sample_data import SAMPLE_WORKFLOW
 
 # ---------- 验收：创建知识 → 绑定到草稿 → 运行时回复基于知识内容 ----------
@@ -93,16 +94,20 @@ def test_capability_flow(db_session):
 # ---------- 验收：KNOWLEDGE_BINDING_MISSING / DATASOURCE_MISSING 校验生效 ----------
 
 
-def test_knowledge_binding_missing_rejects_save(db_session):
+def test_knowledge_binding_missing_allows_save_but_blocks_publish(db_session):
+    """保存不拦（逻辑问题留到发布时提醒）；发布拦 KNOWLEDGE_BINDING_MISSING。"""
     agent = agent_service.create_agent(db_session, name="助手", created_by="tester")
     v1 = agent_service.list_versions(db_session, agent.id)[0]
     v1.knowledge_bindings = ["不存在的知识"]
     db_session.commit()
-    with pytest.raises(ValueError):
-        agent_service.update_draft(db_session, v1.id, prompt="p", workflow_config=SAMPLE_WORKFLOW)
+    v1 = agent_service.update_draft(db_session, v1.id, prompt="p", workflow_config=SAMPLE_WORKFLOW)
+    assert v1.status == "draft"  # 保存成功
+    with pytest.raises(PublishError):
+        publish_service.publish(db_session, v1.id, approved_by="tester")
 
 
-def test_datasource_missing_rejects_save(db_session):
+def test_datasource_missing_allows_save_but_blocks_publish(db_session):
+    """保存不拦（逻辑问题留到发布时提醒）；发布拦 DATASOURCE_MISSING。"""
     agent = agent_service.create_agent(db_session, name="助手", created_by="tester")
     v1 = agent_service.list_versions(db_session, agent.id)[0]
     wf = {
@@ -112,5 +117,7 @@ def test_datasource_missing_rejects_save(db_session):
             "end": {"type": "end"},
         },
     }
-    with pytest.raises(ValueError):
-        agent_service.update_draft(db_session, v1.id, prompt="p", workflow_config=wf)
+    v1 = agent_service.update_draft(db_session, v1.id, prompt="p", workflow_config=wf)
+    assert v1.status == "draft"  # 保存成功
+    with pytest.raises(PublishError):
+        publish_service.publish(db_session, v1.id, approved_by="tester")
